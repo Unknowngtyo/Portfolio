@@ -1,0 +1,229 @@
+local GenerationService = {}
+
+-- SERVICES
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
+local ServerStorage = game:GetService("ServerStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local RunService = game:GetService("RunService")
+
+-- VARIABLES
+local StagePlacement = game.Workspace:WaitForChild("Stages")
+local CheckpointPlacement = game.Workspace:WaitForChild("Checkpoints")
+local Stages = ServerStorage:WaitForChild("Stages")
+local StageStorage = Stages:WaitForChild("easy")
+local mediumStageStorage = Stages:WaitForChild("Medium")
+local Children = StageStorage:GetChildren()
+
+
+local amnt = 0
+local Previous
+local Connections = {}
+
+-- FUNCTIONS
+function GenerationService:GetRandomStage()
+	if not Children or #Children < 1 then warn("[SERVER] - Could not find any stages!") return end
+	local Stage = tostring(Children[math.random(1, #Children)])
+	return Stage
+end
+
+
+
+function GenerationService:CreateStage(typ, stagNR, one, two, angle, last)
+	if not Children or #Children < 1 then warn("[SERVER] - Unable to create stage!") return end
+	local Stage
+
+	if amnt < 50 then
+		if not last then
+			Stage = StageStorage[typ]:Clone()
+			amnt += 1
+		end
+	else  -- This handles amnt > 50 implicitly
+		if not last then
+			print("level 51 runs")
+			Stage = mediumStageStorage[typ]:Clone()
+			amnt += 1
+		end
+	end
+
+	
+	if not Stage:FindFirstChild("Colored") then
+		return warn("[SERVER] - " .. typ .. " " .. stagNR .. " failed to get colored!")
+	end
+	for _, part in pairs(Stage.Colored.One:GetChildren()) do
+		if one then
+			if part:IsA("BasePart") or part:IsA("WedgePart") or part:IsA("TrussPart") then
+				part.Color = one
+			end
+		end
+	end
+	for _, part in pairs(Stage.Colored.Two:GetChildren()) do
+		if two then
+			if part:IsA("BasePart") or part:IsA("WedgePart") or part:IsA("TrussPart") then
+				part.Color = two
+			end
+		end
+	end
+
+	Stage.Parent = StagePlacement
+
+	if Stage:FindFirstChild("Lava") then
+		for _, lavaObj in pairs(Stage.Lava:GetChildren()) do
+			CollectionService:AddTag(lavaObj, "Lava")
+			if one then
+				lavaObj.Color = one
+				lavaObj.CanCollide = false
+			end
+			if not lavaObj.Anchored and lavaObj:IsDescendantOf(game.Workspace) then
+				lavaObj:SetNetworkOwner(nil)
+			end
+		end
+	end
+	if Previous then
+		if angle then
+			Stage:SetPrimaryPartCFrame(CFrame.new(Previous.Next.Position) * CFrame.Angles(0, math.rad(angle), 0))
+		else
+			Stage:SetPrimaryPartCFrame(CFrame.new(Previous.Next.Position))
+		end
+		Previous.Next:Destroy()
+	else
+		Stage:SetPrimaryPartCFrame(CFrame.new(0, 0, 0))
+	end
+
+	Previous = Stage
+
+	local Checkpoint = Stage.Checkpoint
+	if Checkpoint then
+		if one then
+			Checkpoint.Color = one
+		end
+		Checkpoint.Name = "Checkpoint " .. stagNR
+		Checkpoint.Parent = CheckpointPlacement
+		if stagNR == 1 then
+			return
+		end
+	end
+end 
+
+local function kill(hit)
+	local Player = Players:GetPlayerFromCharacter(hit.Parent)
+	if Player then
+		if hit:IsA("BasePart") and not hit:IsA("Accessory") and Player then
+			local Humanoid = Player.Character:FindFirstChild("Humanoid")
+			if Humanoid then
+				if Humanoid.Health > 0 then
+					Humanoid:TakeDamage(100)
+				end
+			else
+				return print("[SERVER] - Character could not be found.")
+			end
+		end
+	end
+end
+
+-- CONNECTIONS
+CollectionService:GetInstanceAddedSignal("Lava"):Connect(function()
+	for _, lavaObj in pairs(CollectionService:GetTagged("Lava")) do
+		lavaObj.Touched:Connect(kill)
+	end
+end)
+
+return GenerationService
+
+
+
+local ObbyService = {}
+
+-- SERVICES
+local ServerStorage = game:GetService("ServerStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local RunService = game:GetService("RunService")
+
+-- MODULES
+local GenerationService = require(ServerScriptService.Server.Obby:WaitForChild("Generation"))
+
+-- VARIABLES
+local RNG = Random.new()
+local Settings = {
+	Stages = script.Parent.Settings:WaitForChild("Stages").Value,
+	Turnpoint = script.Parent.Settings:WaitForChild("Turnpoint").Value
+}
+local globalCount = 1
+local count = Settings.Stages
+local direction = true
+
+-- FUNCTIONS
+function ObbyService:GenerateObby()
+	for currentCount = 1, count, 1 do wait(0.3)
+		local RandomColorOne, RandomColorTwo = Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255)), Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255))
+		local Stage = GenerationService:GetRandomStage()
+		if not Stage then return end
+		if globalCount == Settings.Stages then -- if stage end
+			GenerationService:CreateStage(Stage, globalCount, RandomColorOne, RandomColorTwo, nil, true)
+			globalCount = globalCount + 1
+			break
+		elseif currentCount % Settings.Turnpoint == (Settings.Turnpoint * 0.8) then -- turn stage
+			if direction then
+				direction = false
+				for live = 1, Settings.Turnpoint, 1 do wait(0.3)
+					if globalCount == Settings.Stages then break end
+					local RandomColorOne, RandomColorTwo = Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255)), Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255))
+					Stage = GenerationService:GetRandomStage()
+					GenerationService:CreateStage(Stage, globalCount, RandomColorOne, RandomColorTwo, 90, false)
+					globalCount = globalCount + 1
+				end
+			else
+				direction = true
+				for live = 1, Settings.Turnpoint, 1 do wait(0.3)
+					if globalCount == Settings.Stages then break end
+					local RandomColorOne, RandomColorTwo = Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255)), Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255))
+					Stage = GenerationService:GetRandomStage()
+					GenerationService:CreateStage(Stage, globalCount, RandomColorOne, RandomColorTwo, -90, false)
+					globalCount = globalCount + 1
+				end
+			end
+		else -- normal stage
+			GenerationService:CreateStage(Stage, globalCount, RandomColorOne, RandomColorTwo, nil, false)
+			globalCount = globalCount + 1
+		end
+	end
+
+end
+
+-- CONNECTIONS
+spawn(function()
+	ObbyService:GenerateObby()
+end)
+
+return ObbyService
+
+-- VARIABLES
+local Loaded = 0
+local Modules = {
+	ObbyService = script:WaitForChild("Obby"),
+	CheckpointService = script:WaitForChild("Checkpoint"),
+	MarketService = script:WaitForChild("Market"),
+	CollisionService = script:WaitForChild("Collision"),
+	TagsService = script:WaitForChild("Tags")
+}
+
+local function totalModules(tab)
+	local amount = 0
+	for _, module in pairs(tab) do
+		amount = amount + 1
+	end
+	return amount
+end
+
+for _, module in pairs(Modules) do
+	local success, result = pcall(function()
+		return require(module)
+	end)
+	if success then
+		Loaded = Loaded + 1
+		print("[SERVER] - Loaded " .. module.Name .. " " .. Loaded .. "/" .. totalModules(Modules) .. "!")
+	else
+		warn("[SERVER] - Could not load " .. module.Name .. "!")
+	end
+end
