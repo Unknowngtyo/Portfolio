@@ -1,6 +1,6 @@
 local GenerationService = {}
 -- SERVICES
-local Players = game:GetService("Players")
+local Players = game:GetService("Players") -- THese get important services need to run the code
 local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -17,15 +17,17 @@ local amnt = 0
 local Previous
 local Connections = {}
 -- FUNCTIONS
+-- Get a random stage from the available collection
 function GenerationService:GetRandomStage()
 	if not Children or #Children < 1 then warn("[SERVER] - Could not find any stages!") return end
 	local Stage = tostring(Children[math.random(1, #Children)])
 	return Stage
 end
+-- Create a stage with specified parameters
 function GenerationService:CreateStage(typ, stagNR, one, two, angle, last)
 	if not Children or #Children < 1 then warn("[SERVER] - Unable to create stage!") return end
 	local Stage
-
+  -- Choose stage storage based on the number of stages generated
 	if amnt < 50 then
 		if not last then
 			Stage = StageStorage[typ]:Clone()
@@ -38,6 +40,7 @@ function GenerationService:CreateStage(typ, stagNR, one, two, angle, last)
 			amnt += 1
 		end
 	end
+-- Check if stage has required components
 	if not Stage:FindFirstChild("Colored") then
 		return warn("[SERVER] - " .. typ .. " " .. stagNR .. " failed to get colored!")
 	end
@@ -55,7 +58,25 @@ function GenerationService:CreateStage(typ, stagNR, one, two, angle, last)
 			end
 		end
 	end
+
+-- Apply colors to stage parts
+    -- Apply color one to parts in section One, and color two to parts in section Two
+
+    -- Place the stage in the game world
 	Stage.Parent = StagePlacement
+  -- Handle lava if present
+    -- If lava exists in the stage, color it and make it non-collidable
+
+    -- Set stage position and rotation based on previous stage
+    -- Set the position and rotation of the current stage based on the position of the previous stage
+
+    -- Update previous stage reference
+    -- Save the current stage as the previous stage
+
+    -- Create checkpoint if applicable
+    -- If this stage has a checkpoint, create and place it in the game world
+
+
 	if Stage:FindFirstChild("Lava") then
 		for _, lavaObj in pairs(Stage.Lava:GetChildren()) do
 			CollectionService:AddTag(lavaObj, "Lava")
@@ -114,6 +135,8 @@ CollectionService:GetInstanceAddedSignal("Lava"):Connect(function()
 	end
 end)
 return GenerationService
+
+
 local ObbyService = {}
 -- SERVICES
 local ServerStorage = game:GetService("ServerStorage")
@@ -132,6 +155,16 @@ local count = Settings.Stages
 local direction = true
 -- FUNCTIONS
 function ObbyService:GenerateObby()
+-- Iterate through stages to create the obstacle course
+    -- Loop until the desired number of stages is reached
+        -- Wait for a short time to prevent overwhelming the server
+        -- Generate random colors for the stage
+        -- Get a random stage from GenerationService
+        -- If it's the last stage, create it with a flag indicating it's the last one
+        -- If it's not a turning point, create the stage normally
+        -- If it's a turning point, alternate between left and right turns
+            -- Create a series of stages with the appropriate rotation
+    -- End loop
 	for currentCount = 1, count, 1 do wait(0.3)
 		local RandomColorOne, RandomColorTwo = Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255)), Color3.fromHSV(RNG:NextInteger(1, 360), RNG:NextInteger(1, 255), RNG:NextInteger(1, 255))
 		local Stage = GenerationService:GetRandomStage()
@@ -171,14 +204,16 @@ spawn(function()
 	ObbyService:GenerateObby()
 end)
 return ObbyService
+
+
 -- VARIABLES
-local Loaded = 0
-local Modules = {
-	ObbyService = script:WaitForChild("Obby"),
-	CheckpointService = script:WaitForChild("Checkpoint"),
-	MarketService = script:WaitForChild("Market"),
-	CollisionService = script:WaitForChild("Collision"),
-	TagsService = script:WaitForChild("Tags")
+local Loaded = 0 -- Counter for loaded Modules
+local Modules = { -- saves all modules together making it easy to sort
+	ObbyService = script:WaitForChild("Obby"), -- References Obby service
+	CheckpointService = script:WaitForChild("Checkpoint"), -- References Checkpoint service
+	MarketService = script:WaitForChild("Market"), --  References market service
+	CollisionService = script:WaitForChild("Collision"), -- references collision service
+	TagsService = script:WaitForChild("Tags") -- references tag service
 }
 
 local function totalModules(tab)
@@ -188,15 +223,298 @@ local function totalModules(tab)
 	end
 	return amount
 end
-
+-- loops through all the modules in Modules
 for _, module in pairs(Modules) do
+	--attempts to require module
 	local success, result = pcall(function()
 		return require(module)
 	end)
+	-- checks to see if its successful
 	if success then
+		--increase to next module and print the loaded modules
 		Loaded = Loaded + 1
 		print("[SERVER] - Loaded " .. module.Name .. " " .. Loaded .. "/" .. totalModules(Modules) .. "!")
 	else
+		-- problem with moduleScripts
 		warn("[SERVER] - Could not load " .. module.Name .. "!")
 	end
 end
+
+-- manages ingame purchases and perks
+local MarketService = {}
+
+-- SERVICES
+local ServerScriptService = game:GetService("ServerScriptService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local DataStoreService = game:GetService("DataStoreService")
+local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local PurchaseHistoryStore = DataStoreService:GetDataStore("PurchaseHistory")
+
+-- EVENTS
+local Update = ReplicatedStorage.Events:WaitForChild("Update")
+local Equip = ReplicatedStorage.Events:WaitForChild("Equip")
+local Notify = ReplicatedStorage.Events:WaitForChild("Notify")
+
+-- MODULES
+local ChatService = require(ServerScriptService.Server:WaitForChild("Chat"))
+
+-- VARIABLES
+local toolStorage = ServerStorage:WaitForChild("Tools") -- Storage for in-game tools
+local checkpoints = game.Workspace:WaitForChild("Checkpoints") -- Checkpoints in the game world
+local toolGears = {11502582, 11502579, 11502573} -- IDs of game passes corresponding to tools
+local productFunctions = {} -- Table to store product-specific functions
+local cooldown = {} -- Table to track cooldowns for player actions
+
+-- FUNCTIONS
+productFunctions[1807354171] = function(receipt, player) -- SKIP STAGE
+	local stats = player:FindFirstChild("leaderstats")
+	if player.Character and stats then
+		if not checkpoints:FindFirstChild("Checkpoint " .. stats.Stage.Value + 1) then
+			warn("[SERVER] - No next stage, why did " .. player.Name .. " bypass the system?")
+			return false
+		end
+		if stats.Stage.Value then
+			stats.Stage.Value = stats.Stage.Value + 1
+		end
+		if checkpoints["Checkpoint " .. stats.Stage.Value] then
+			player.Character:MoveTo(checkpoints["Checkpoint " .. stats.Stage.Value].Position)
+		end
+	end
+	return true
+end
+
+productFunctions[783160176] = function(receipt, player)
+		print("runs for loop")
+		local stats = Players:FindFirstChild("leaderstats")
+		if player.Character and stats then
+			stats.Stage.Value = 1
+		end
+		if not checkpoints:FindFirstChild("Checkpoint " .. stats.Stage.Value + 1) then
+			warn("[SERVER] - No next stage, why did " .. player.Name .. " bypass the system?")
+			return false
+		end
+		if checkpoints["Checkpoint " .. stats.Stage.Value] then
+			Players.Character:MoveTo(checkpoints["Checkpoint " .. stats.Stage.Value].Position)
+		end
+		return true
+end
+
+-- FUNCTION to process receipts and handle purchases
+function processReceipt(receiptInfo)
+    -- Create a unique key for the player and product
+	local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+	local purchased = false
+	-- Attempt to retrieve purchase data from datastore
+	local success, errorMessage = pcall(function()
+		purchased = PurchaseHistoryStore:GetAsync(playerProductKey)
+	end)
+    -- If purchase data retrieval is successful and product is purchased, grant purchase
+	if success and purchased then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	elseif not success then
+		error("[SERVER] - Data store error:" .. errorMessage)
+	end
+    -- Get the player from their user ID
+	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+    -- Call the product-specific function to handle the purchase
+	local handler = productFunctions[receiptInfo.ProductId]
+	local success, result = pcall(handler, receiptInfo, player)
+	if not success or not result then
+		warn("[SERVER] - Error occurred while processing a product purchase")
+		print("\nProductId:", receiptInfo.ProductId)
+		print("\nPlayer:", player)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local success, errorMessage = pcall(function()
+		PurchaseHistoryStore:SetAsync(playerProductKey, true)
+	end)
+	if not success then
+		error("Cannot save purchase data: " .. errorMessage)
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+function MarketService:GiveOwnedPerks(player)
+ -- Check if player owns specific game passes and grant corresponding perks
+    -- If player owns a game pass for infinite health, set health to infinite, grant tools, etc.
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 11502577) then -- health
+		player.Character.Humanoid.MaxHealth = math.huge
+		player.Character.Humanoid.Health = math.huge
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 11502573) then -- cloud
+		local tool = toolStorage:FindFirstChild("Cloud")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 11502582) then -- gravity
+		local tool = toolStorage:FindFirstChild("Gravity Coil")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 11502579) then -- speed
+		local tool = toolStorage:FindFirstChild("Speed Coil")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+end
+
+local function gamepassRequest(player, gamepassId, isPurchased)
+    -- Get product info for the game pass
+    -- If game pass is purchased, grant perks and notify player
+	local success, result = pcall(function()
+		return MarketplaceService:GetProductInfo(gamepassId, Enum.InfoType.GamePass)
+	end)
+	if not success then
+		return warn("[CLIENT] - Could not load product!")
+	end
+	if isPurchased then
+		if result.Name == "Infinite Health" then
+			player.Character.Humanoid.MaxHealth = math.huge
+			player.Character.Humanoid.Health = math.huge
+		end
+
+		-- UPDATE CLIENT AND NOTIFY SERVER.
+		ChatService:ServerMessage("🎉 " .. player.Name .. " has purchased a gamepass!")
+		Update:FireClient(player, "Shop", result.Name, gamepassId)
+
+		Notify:FireClient(player)
+		local tool = toolStorage:FindFirstChild(result.Name)
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+end
+
+local function characterAdded(character)
+	local player = game.Players:GetPlayerFromCharacter(character)
+	MarketService:GiveOwnedPerks(player)
+end
+
+local function playerAdded(player)
+	player.CharacterAdded:Connect(characterAdded)
+end
+
+-- CONNECTIONS
+game.Players.PlayerAdded:Connect(playerAdded)
+for _, player in ipairs(Players:GetPlayers()) do
+	playerAdded(player)
+end
+
+MarketplaceService.ProcessReceipt = processReceipt
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(gamepassRequest)
+
+Equip.OnServerEvent:Connect(function(player, id)
+	if not cooldown[player] then
+		cooldown[player] = true
+		wait(0.5)
+		cooldown[player] = nil
+	end
+end)
+
+return MarketService
+
+
+local CheckpointService = {}
+
+-- SERVICES
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+-- MODULES
+local AchievementService = require(game.ServerScriptService.Server:WaitForChild("Achievement"))
+
+-- VARIABLES
+local CHECKPOINTS = game.Workspace:WaitForChild("Checkpoints") -- Checkpoints in the game world
+local STAT_NAME = "Stage" -- Name of the player stat tracking their progress
+local PREVENT_SKIPPING = false -- Flag to prevent players from skipping checkpoints
+
+-- CONNECTIONS
+local function playerAdded(player)
+- Create or find the player's leaderstats folder
+    -- If player's leaderstats folder doesn't exist, create it
+    -- Add an IntValue to track player's stage progres
+	local leaderstats = Instance.new("Folder", player) or player:FindFirstChild("leaderstats")
+	leaderstats.Name = "leaderstats"
+	local checkpointStat = Instance.new("IntValue", leaderstats)
+	checkpointStat.Name = STAT_NAME
+	checkpointStat.Value = 1
+	player.CharacterAdded:connect(function(character)
+		repeat
+			wait()
+		until CHECKPOINTS and checkpointStat
+		local goto = CHECKPOINTS:FindFirstChild("Checkpoint " .. checkpointStat.Value)
+		if goto then
+			character:MoveTo(goto.Position)
+		else
+			warn("[SERVER] - Checkpoint " .. checkpointStat.Value .. " not found!")
+		end
+	end)
+end
+-- FUNCTION to handle player interactions with checkpoints
+game.Workspace.Checkpoints.ChildAdded:Connect(function()
+    -- Connect player collisions with each checkpoint
+	for Index, Checkpoint in pairs(CHECKPOINTS:GetChildren()) do
+		Checkpoint.Touched:connect(function(hit)
+			local Player = game.Players:GetPlayerFromCharacter(hit.Parent)
+			if not Player then return end
+			local Humanoid = hit.Parent:FindFirstChild("Humanoid")
+			if not Humanoid or Humanoid.Health <= 0 then return end
+			local leaderstats = Player:FindFirstChild("leaderstats")
+			if not leaderstats then return end
+			local checkpointStat = leaderstats:FindFirstChild(STAT_NAME)
+			if not leaderstats then return end
+			if (PREVENT_SKIPPING and checkpointStat.Value + 1 == Index) or (not PREVENT_SKIPPING and checkpointStat.Value < Index) then
+				checkpointStat.Value = Index
+				if checkpointStat.Value == script.Parent.Settings:WaitForChild("Stages").Value then
+					AchievementService:RewardBadgeRequest(Player, 2124598202)
+				end
+			end
+		end)
+	end
+end)
+
+RunService.Heartbeat:Connect(function()
+-- Loop through all players
+--  For each player in the game it checks if player has a checkpoint stat
+--  If player has a checkpoint stat, check their position relative to their current checkpoint
+-- If player's Y position is significantly lower than their checkpoint's Y position
+-- Pseudocode: If player is falling too low, move them back to their checkpoint position
+end)
+	local Players = Players:GetPlayers()
+	for _, player in pairs(Players) do
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats then
+			local checkpointStat = leaderstats:FindFirstChild(STAT_NAME)
+			local checkpointObject = CHECKPOINTS:FindFirstChild("Checkpoint " .. checkpointStat.Value)
+			local character = player.Character or player.CharacterAdded:Wait()
+			if not checkpointStat then return warn("[SERVER] - Error during anti-fall!") end
+			if not checkpointObject then return end
+			if character.PrimaryPart and character.PrimaryPart.Position.Y <= checkpointObject.Position.Y - 25 and CHECKPOINTS:FindFirstChild("Checkpoint " .. checkpointStat.Value) then
+				character:MoveTo(CHECKPOINTS["Checkpoint " .. checkpointStat.Value].Position)
+			end
+		else
+			warn("[SERVER] - Some error occoured for " .. player.Name .. "!")
+		end
+	end
+end)
+
+Players.PlayerAdded:Connect(playerAdded)
+for _, player in ipairs(Players:GetPlayers()) do
+	playerAdded(player)
+end
+
+return CheckpointService
